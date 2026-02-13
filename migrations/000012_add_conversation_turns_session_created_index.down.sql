@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_conversation_turns_session_id_created_at;

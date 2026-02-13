@@ -1,0 +1,41 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aiden-app
+    command: ["go", "run", "./cmd/aiden"]
+    env_file:
+      - .env
+    environment:
+      APP_ENV: development
+      HTTP_PORT: 8080
+      DB_DSN: postgres://postgres:postgres@postgres:5432/aiden?sslmode=disable
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-dev-token}
+    ports:
+      - "8080:8080"
+    volumes:
+      - .:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: aiden-postgres
+    environment:
+      POSTGRES_DB: aiden
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - aiden-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d aiden"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  aiden-postgres-data:

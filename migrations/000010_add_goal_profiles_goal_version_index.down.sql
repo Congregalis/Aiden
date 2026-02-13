@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_goal_profiles_goal_id_version_no_desc;

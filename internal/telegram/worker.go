@@ -11,6 +11,7 @@ import (
 const (
 	defaultPollFailureBackoffBase = 500 * time.Millisecond
 	defaultPollFailureBackoffMax  = 8 * time.Second
+	defaultSessionTimeout         = 24 * time.Hour
 )
 
 type WorkerConfig struct {
@@ -23,6 +24,7 @@ type Worker struct {
 	client         Client
 	store          Store
 	router         Router
+	intentRouter   IntentRouter
 	sender         Sender
 	logger         *slog.Logger
 	pollTimeoutSec int
@@ -40,6 +42,7 @@ func NewWorker(cfg WorkerConfig, client Client, store Store, logger *slog.Logger
 		client:         client,
 		store:          store,
 		router:         NewRouter(),
+		intentRouter:   NewIntentRouter(),
 		sender:         NewSender(client, logger),
 		logger:         logger,
 		pollTimeoutSec: cfg.PollTimeoutSec,
@@ -189,20 +192,28 @@ func (w *Worker) handleUpdate(ctx context.Context, update Update) error {
 		case "start":
 			reply = w.router.ReplyForStart(isNewUser)
 		case "goal":
-			if _, err := w.ensureActiveGoal(ctx, user, message.ChatID); err != nil {
+			goal, err := w.ensureActiveGoal(ctx, user, message.ChatID)
+			if err != nil {
 				return err
 			}
-			reply = ReplyGoal
+			reply, err = w.handleClarifyRound(ctx, message, goal)
+			if err != nil {
+				return err
+			}
 		case "help":
 			reply = ReplyHelp
 		default:
 			reply = ReplyUnknownCommand
 		}
 	} else {
-		if _, err := w.ensureActiveGoal(ctx, user, message.ChatID); err != nil {
+		goal, err := w.ensureActiveGoal(ctx, user, message.ChatID)
+		if err != nil {
 			return err
 		}
-		reply = ReplyNaturalMessage
+		reply, err = w.handleClarifyRound(ctx, message, goal)
+		if err != nil {
+			return err
+		}
 	}
 
 	return w.sender.Send(ctx, OutgoingMessage{
@@ -234,6 +245,142 @@ func (w *Worker) ensureActiveGoal(ctx context.Context, user User, chatID int64) 
 	)
 
 	return createdGoal, nil
+}
+
+func (w *Worker) handleClarifyRound(ctx context.Context, message IncomingMessage, goal Goal) (string, error) {
+	session, _, err := w.store.GetOrCreatePlanningSession(ctx, goal.ID)
+	if err != nil {
+		return "", fmt.Errorf("get or create planning session: %w", err)
+	}
+
+	timeoutNotice := ""
+	if shouldResetSessionForTimeout(session.UpdatedAt) && !session.State.IsFinal() {
+		timeoutNotice = ReplySessionTimeout
+		session.State = StateClarifying
+		session.LastIntent = ""
+		session.TurnCount = 0
+		if err := w.store.UpdatePlanningSession(ctx, session); err != nil {
+			return "", fmt.Errorf("reset planning session after timeout: %w", err)
+		}
+	}
+
+	intent := w.intentRouter.Route(message.Text, session.State)
+
+	turnCount, err := w.store.IncrementPlanningSessionTurn(ctx, session.ID)
+	if err != nil {
+		return "", fmt.Errorf("increment planning session turn: %w", err)
+	}
+	session.TurnCount = turnCount
+
+	if err := w.store.SaveConversationTurn(ctx, ConversationTurn{
+		SessionID:        session.ID,
+		Role:             ConversationRoleUser,
+		Content:          message.Text,
+		Intent:           intent.Intent,
+		IntentConfidence: &intent.Confidence,
+	}); err != nil {
+		return "", fmt.Errorf("save user conversation turn: %w", err)
+	}
+
+	reply, updatedSession := w.buildClarifyReply(session, message.Text, intent)
+	if timeoutNotice != "" {
+		reply = timeoutNotice + "\n\n" + reply
+	}
+	if updatedSession.TurnCount > 0 &&
+		updatedSession.TurnCount%3 == 0 &&
+		!updatedSession.State.IsFinal() &&
+		!strings.Contains(reply, "【当前摘要】") {
+		reply = reply + "\n\n" + BuildProgressSummary(updatedSession.SlotCompletion)
+	}
+
+	if err := w.store.UpdatePlanningSession(ctx, updatedSession); err != nil {
+		return "", fmt.Errorf("update planning session: %w", err)
+	}
+
+	if err := w.store.SaveConversationTurn(ctx, ConversationTurn{
+		SessionID: updatedSession.ID,
+		Role:      ConversationRoleAssistant,
+		Content:   reply,
+		Intent:    intent.Intent,
+	}); err != nil {
+		return "", fmt.Errorf("save assistant conversation turn: %w", err)
+	}
+
+	return reply, nil
+}
+
+func (w *Worker) buildClarifyReply(session PlanningSession, text string, intent IntentResult) (string, PlanningSession) {
+	updated := session
+	updated.State = ParsePlanningState(string(updated.State))
+	if updated.State == StateIdle {
+		updated.State = StateClarifying
+	}
+	updated.SlotCompletion = NormalizeSlotCompletion(updated.SlotCompletion)
+	updated.LastIntent = intent.Intent
+
+	command := ParseCommand(text)
+	isGoalCommand := command.IsCommand && command.Name == "goal"
+
+	if isGoalCommand {
+		updated.State = StateClarifying
+		return ReplyGoal, updated
+	}
+
+	shouldExtractSlots := intent.Intent == IntentClarifyGoal
+	if shouldExtractSlots {
+		updated.SlotCompletion = UpdateSlotCompletionFromText(updated.SlotCompletion, text)
+	}
+
+	switch updated.State {
+	case StateReview:
+		if intent.Intent == IntentConfirmPlan {
+			updated.State = StateConfirmed
+			return ReplyPlanConfirmed, updated
+		}
+		if intent.Intent == IntentClarifyGoal {
+			updated.State = StateClarifying
+			questions := BuildFollowUpQuestions(MissingRequiredSlots(updated.SlotCompletion), 2)
+			if len(questions) == 0 {
+				return "已收到修改意见，我已切回 clarifying。请补充你希望调整的重点。", updated
+			}
+			return "已收到修改意见，我已切回 clarifying。\n" + FormatFollowUpQuestions(questions), updated
+		}
+		return ReplyReviewFallback, updated
+
+	case StateConfirmed:
+		if intent.Intent == IntentClarifyGoal {
+			updated.State = StateClarifying
+			questions := BuildFollowUpQuestions(MissingRequiredSlots(updated.SlotCompletion), 1)
+			if len(questions) == 0 {
+				return "我已重新打开澄清会话，请告诉我你想调整的目标内容。", updated
+			}
+			return "我已重新打开澄清会话。\n" + FormatFollowUpQuestions(questions), updated
+		}
+		return ReplyPlanConfirmed, updated
+	}
+
+	if intent.Intent == IntentFallbackUnknown {
+		return ReplyFallbackGuidance, updated
+	}
+
+	if IsRequiredSlotsComplete(updated.SlotCompletion) {
+		updated.State = StateReview
+		return ReplyReviewReady + "\n\n" + BuildProgressSummary(updated.SlotCompletion), updated
+	}
+
+	questions := BuildFollowUpQuestions(MissingRequiredSlots(updated.SlotCompletion), 2)
+	if len(questions) == 0 {
+		return ReplyNaturalMessage, updated
+	}
+
+	return FormatFollowUpQuestions(questions), updated
+}
+
+func shouldResetSessionForTimeout(lastUpdatedAt time.Time) bool {
+	if lastUpdatedAt.IsZero() {
+		return false
+	}
+	return time.Since(lastUpdatedAt) >= defaultSessionTimeout
 }
 
 func pollingFailureBackoff(failureStreak int) time.Duration {

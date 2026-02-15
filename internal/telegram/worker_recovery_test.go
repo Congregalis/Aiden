@@ -90,20 +90,25 @@ func runWorkerUntilSendCount(t *testing.T, client *scriptedClient, store *memory
 }
 
 type memoryStore struct {
-	mu              sync.Mutex
-	lastUpdateID    int64
-	dedup           map[int64]struct{}
-	usersByChatID   map[int64]User
-	activeGoalByUID map[string]Goal
-	nextUserID      int
-	nextGoalID      int
+	mu               sync.Mutex
+	lastUpdateID     int64
+	dedup            map[int64]struct{}
+	usersByChatID    map[int64]User
+	activeGoalByUID  map[string]Goal
+	sessionsByGoalID map[string]PlanningSession
+	turns            []ConversationTurn
+	nextUserID       int
+	nextGoalID       int
+	nextSessionID    int
 }
 
 func newMemoryStore() *memoryStore {
 	return &memoryStore{
-		dedup:           make(map[int64]struct{}),
-		usersByChatID:   make(map[int64]User),
-		activeGoalByUID: make(map[string]Goal),
+		dedup:            make(map[int64]struct{}),
+		usersByChatID:    make(map[int64]User),
+		activeGoalByUID:  make(map[string]Goal),
+		sessionsByGoalID: make(map[string]PlanningSession),
+		turns:            make([]ConversationTurn, 0),
 	}
 }
 
@@ -176,6 +181,64 @@ func (s *memoryStore) CreateGoalDraft(_ context.Context, userID string) (Goal, e
 	return goal, nil
 }
 
+func (s *memoryStore) GetOrCreatePlanningSession(_ context.Context, goalID string) (PlanningSession, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if existing, ok := s.sessionsByGoalID[goalID]; ok {
+		return existing, false, nil
+	}
+
+	s.nextSessionID++
+	created := PlanningSession{
+		ID:             fmt.Sprintf("session-%d", s.nextSessionID),
+		GoalID:         goalID,
+		State:          StateIdle,
+		SlotCompletion: DefaultSlotCompletion(),
+		TurnCount:      0,
+		LastIntent:     "",
+		UpdatedAt:      time.Now(),
+	}
+	s.sessionsByGoalID[goalID] = created
+	return created, true, nil
+}
+
+func (s *memoryStore) IncrementPlanningSessionTurn(_ context.Context, sessionID string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, key, ok := s.findSessionByID(sessionID)
+	if !ok {
+		return 0, fmt.Errorf("planning session %s not found", sessionID)
+	}
+
+	session.TurnCount++
+	session.UpdatedAt = time.Now()
+	s.sessionsByGoalID[key] = session
+	return session.TurnCount, nil
+}
+
+func (s *memoryStore) UpdatePlanningSession(_ context.Context, updated PlanningSession) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.sessionsByGoalID[updated.GoalID]; !ok {
+		return fmt.Errorf("planning session %s not found", updated.ID)
+	}
+
+	updated.SlotCompletion = NormalizeSlotCompletion(updated.SlotCompletion)
+	updated.UpdatedAt = time.Now()
+	s.sessionsByGoalID[updated.GoalID] = updated
+	return nil
+}
+
+func (s *memoryStore) SaveConversationTurn(_ context.Context, turn ConversationTurn) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.turns = append(s.turns, turn)
+	return nil
+}
+
 func (s *memoryStore) LastUpdateID() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -193,6 +256,34 @@ func (s *memoryStore) UserByChatID(chatID int64) (User, bool) {
 	defer s.mu.Unlock()
 	user, ok := s.usersByChatID[chatID]
 	return user, ok
+}
+
+func (s *memoryStore) SessionByGoalID(goalID string) (PlanningSession, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	session, ok := s.sessionsByGoalID[goalID]
+	return session, ok
+}
+
+func (s *memoryStore) ConversationTurnsBySessionID(sessionID string) []ConversationTurn {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]ConversationTurn, 0, len(s.turns))
+	for _, turn := range s.turns {
+		if turn.SessionID == sessionID {
+			out = append(out, turn)
+		}
+	}
+	return out
+}
+
+func (s *memoryStore) findSessionByID(sessionID string) (PlanningSession, string, bool) {
+	for goalID, session := range s.sessionsByGoalID {
+		if session.ID == sessionID {
+			return session, goalID, true
+		}
+	}
+	return PlanningSession{}, "", false
 }
 
 type scriptedClient struct {

@@ -11,6 +11,12 @@ const (
 	ReplyNonText        = "我目前只能处理文本消息，请发送文字内容。"
 	ReplyUnknownCommand = "这个命令会在后续里程碑开放。当前可用：/start、/goal、/help。"
 	ReplyNaturalMessage = "收到，我已进入自然语言澄清入口。你可以继续描述目标细节，或发送 /goal 切换到命令入口。"
+	ReplyReviewReady    = "关键信息已补齐，我已切换到 review。回复“确认”即可完成澄清；如需修改，请直接告诉我你要调整的内容。"
+	ReplyPlanConfirmed  = "已确认，当前会话状态更新为 confirmed。接下来我会按这个目标继续推进。"
+
+	ReplyFallbackGuidance = "我这条没有完全理解。你可以直接补充：主目标、成功标准、当前水平、时间预算或约束；我会保留当前上下文继续澄清。"
+	ReplyReviewFallback   = "如果你认可当前版本，请回复“确认”；如果要改动，直接说“修改 + 你的新要求”。我会保留上下文。"
+	ReplySessionTimeout   = "距离上次澄清已超过 24 小时，我先帮你恢复到澄清状态，我们继续补齐信息。"
 )
 
 type Command struct {

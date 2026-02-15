@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"strings"
 	"testing"
 )
 
@@ -149,7 +150,7 @@ func TestWorkerNaturalMessageCreatesDraftWhenNoActiveGoal(t *testing.T) {
 	if len(sent) != 1 {
 		t.Fatalf("sent messages=%d, want 1", len(sent))
 	}
-	if sent[0].Text != ReplyNaturalMessage {
-		t.Fatalf("reply=%q, want %q", sent[0].Text, ReplyNaturalMessage)
+	if got := sent[0].Text; !strings.Contains(got, "我先补齐关键信息") {
+		t.Fatalf("reply=%q, want follow-up guidance", got)
 	}
 }

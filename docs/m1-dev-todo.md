@@ -74,20 +74,20 @@
 
 ## 5. EPIC-CLARIFY（澄清状态机）
 
-- [ ] `CL-001` 定义状态枚举：`idle/clarifying/review/confirmed`
-- [ ] `CL-002` 实现 `get_or_create_planning_session`
-- [ ] `CL-003` session 每轮 `turn_count +1`
-- [ ] `CL-004` 保存每轮用户输入到 `conversation_turns`
-- [ ] `CL-005` 保存每轮 assistant 输出到 `conversation_turns`
-- [ ] `CL-006` 实现意图路由器（`clarify_goal/confirm_plan/fallback_unknown`）
-- [ ] `CL-007` `/goal` 进入 `clarifying` 状态
-- [ ] `CL-008` 当必填字段补齐后进入 `review`
-- [ ] `CL-009` 用户确认后进入 `confirmed`
-- [ ] `CL-010` review 状态收到修改意见后回到 `clarifying`
-- [ ] `CL-011` 每轮最多生成 1-2 个补问
-- [ ] `CL-012` 每 3 轮自动触发“当前摘要 + 是否继续优化”
-- [ ] `CL-013` 会话超时策略（例如 24h 无消息重置提醒）
-- [ ] `CL-014` fallback 意图输出引导语并保留上下文
+- [x] `CL-001` 定义状态枚举：`idle/clarifying/review/confirmed` - 2026-02-15
+- [x] `CL-002` 实现 `get_or_create_planning_session` - 2026-02-15
+- [x] `CL-003` session 每轮 `turn_count +1` - 2026-02-15
+- [x] `CL-004` 保存每轮用户输入到 `conversation_turns` - 2026-02-15
+- [x] `CL-005` 保存每轮 assistant 输出到 `conversation_turns` - 2026-02-15
+- [x] `CL-006` 实现意图路由器（`clarify_goal/confirm_plan/fallback_unknown`） - 2026-02-15
+- [x] `CL-007` `/goal` 进入 `clarifying` 状态 - 2026-02-15
+- [x] `CL-008` 当必填字段补齐后进入 `review` - 2026-02-15
+- [x] `CL-009` 用户确认后进入 `confirmed` - 2026-02-15
+- [x] `CL-010` review 状态收到修改意见后回到 `clarifying` - 2026-02-15
+- [x] `CL-011` 每轮最多生成 1-2 个补问 - 2026-02-15
+- [x] `CL-012` 每 3 轮自动触发“当前摘要 + 是否继续优化” - 2026-02-15
+- [x] `CL-013` 会话超时策略（例如 24h 无消息重置提醒） - 2026-02-15
+- [x] `CL-014` fallback 意图输出引导语并保留上下文 - 2026-02-15
 
 ## 6. EPIC-SLOT（槽位抽取与规则校验）
 

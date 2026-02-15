@@ -3,9 +3,11 @@ package telegram
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 )
 
 const (
@@ -20,6 +22,10 @@ type Store interface {
 	FindOrCreateUserByChatID(context.Context, int64) (User, bool, error)
 	GetActiveGoalByUserID(context.Context, string) (Goal, bool, error)
 	CreateGoalDraft(context.Context, string) (Goal, error)
+	GetOrCreatePlanningSession(context.Context, string) (PlanningSession, bool, error)
+	IncrementPlanningSessionTurn(context.Context, string) (int, error)
+	UpdatePlanningSession(context.Context, PlanningSession) error
+	SaveConversationTurn(context.Context, ConversationTurn) error
 }
 
 type SQLStore struct {
@@ -38,6 +44,24 @@ type Goal struct {
 	UserID string
 	Title  string
 	Status string
+}
+
+type PlanningSession struct {
+	ID             string
+	GoalID         string
+	State          PlanningState
+	SlotCompletion map[string]bool
+	TurnCount      int
+	LastIntent     string
+	UpdatedAt      time.Time
+}
+
+type ConversationTurn struct {
+	SessionID        string
+	Role             string
+	Content          string
+	Intent           string
+	IntentConfidence *float64
 }
 
 func NewSQLStore(db *sql.DB) *SQLStore {
@@ -160,6 +184,105 @@ func (s *SQLStore) CreateGoalDraft(ctx context.Context, userID string) (Goal, er
 	return goal, nil
 }
 
+func (s *SQLStore) GetOrCreatePlanningSession(ctx context.Context, goalID string) (PlanningSession, bool, error) {
+	created, err := s.insertPlanningSessionIfNotExists(ctx, goalID)
+	if err == nil {
+		return created, true, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return PlanningSession{}, false, fmt.Errorf("insert planning session for goal id %s: %w", goalID, err)
+	}
+
+	existing, err := s.findPlanningSessionByGoalID(ctx, goalID)
+	if err != nil {
+		return PlanningSession{}, false, fmt.Errorf("find planning session by goal id %s: %w", goalID, err)
+	}
+
+	return existing, false, nil
+}
+
+func (s *SQLStore) IncrementPlanningSessionTurn(ctx context.Context, sessionID string) (int, error) {
+	var turnCount int
+	err := s.db.QueryRowContext(
+		ctx,
+		`UPDATE planning_sessions
+		 SET turn_count = turn_count + 1,
+		     updated_at = NOW()
+		 WHERE id = $1
+		 RETURNING turn_count`,
+		sessionID,
+	).Scan(&turnCount)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("planning session %s not found", sessionID)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("increment planning session turn for session id %s: %w", sessionID, err)
+	}
+
+	return turnCount, nil
+}
+
+func (s *SQLStore) UpdatePlanningSession(ctx context.Context, session PlanningSession) error {
+	slotCompletionJSON, err := json.Marshal(NormalizeSlotCompletion(session.SlotCompletion))
+	if err != nil {
+		return fmt.Errorf("marshal slot completion: %w", err)
+	}
+
+	result, err := s.db.ExecContext(
+		ctx,
+		`UPDATE planning_sessions
+		 SET state = $2,
+		     slot_completion = $3::jsonb,
+		     turn_count = $4,
+		     last_intent = $5,
+		     updated_at = NOW()
+		 WHERE id = $1`,
+		session.ID,
+		string(session.State),
+		slotCompletionJSON,
+		session.TurnCount,
+		session.LastIntent,
+	)
+	if err != nil {
+		return fmt.Errorf("update planning session %s: %w", session.ID, err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read update planning session rows affected: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("planning session %s not found", session.ID)
+	}
+
+	return nil
+}
+
+func (s *SQLStore) SaveConversationTurn(ctx context.Context, turn ConversationTurn) error {
+	_, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO conversation_turns(
+		    session_id,
+		    role,
+		    content,
+		    intent,
+		    intent_confidence,
+		    created_at
+		 )
+		 VALUES ($1, $2, $3, $4, $5, NOW())`,
+		turn.SessionID,
+		turn.Role,
+		turn.Content,
+		turn.Intent,
+		turn.IntentConfidence,
+	)
+	if err != nil {
+		return fmt.Errorf("insert conversation turn: %w", err)
+	}
+
+	return nil
+}
+
 func (s *SQLStore) loadRuntimeStateValue(ctx context.Context, key string) (string, error) {
 	var value string
 	err := s.db.QueryRowContext(
@@ -230,4 +353,97 @@ func (s *SQLStore) findUserByChatID(ctx context.Context, chatID int64) (User, er
 	}
 
 	return user, nil
+}
+
+func (s *SQLStore) insertPlanningSessionIfNotExists(ctx context.Context, goalID string) (PlanningSession, error) {
+	var (
+		session            PlanningSession
+		stateRaw           string
+		slotCompletionJSON []byte
+	)
+
+	err := s.db.QueryRowContext(
+		ctx,
+		`INSERT INTO planning_sessions(
+		    goal_id,
+		    state,
+		    slot_completion,
+		    turn_count,
+		    last_intent,
+		    updated_at
+		 )
+		 VALUES ($1, 'idle', '{}'::jsonb, 0, '', NOW())
+		 ON CONFLICT (goal_id) DO NOTHING
+		 RETURNING id, goal_id, state, slot_completion, turn_count, last_intent, updated_at`,
+		goalID,
+	).Scan(
+		&session.ID,
+		&session.GoalID,
+		&stateRaw,
+		&slotCompletionJSON,
+		&session.TurnCount,
+		&session.LastIntent,
+		&session.UpdatedAt,
+	)
+	if err != nil {
+		return PlanningSession{}, err
+	}
+
+	slotCompletion, err := parseSlotCompletionJSON(slotCompletionJSON)
+	if err != nil {
+		return PlanningSession{}, fmt.Errorf("parse slot completion from created planning session: %w", err)
+	}
+
+	session.State = ParsePlanningState(stateRaw)
+	session.SlotCompletion = slotCompletion
+	return session, nil
+}
+
+func (s *SQLStore) findPlanningSessionByGoalID(ctx context.Context, goalID string) (PlanningSession, error) {
+	var (
+		session            PlanningSession
+		stateRaw           string
+		slotCompletionJSON []byte
+	)
+
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT id, goal_id, state, slot_completion, turn_count, last_intent, updated_at
+		 FROM planning_sessions
+		 WHERE goal_id = $1`,
+		goalID,
+	).Scan(
+		&session.ID,
+		&session.GoalID,
+		&stateRaw,
+		&slotCompletionJSON,
+		&session.TurnCount,
+		&session.LastIntent,
+		&session.UpdatedAt,
+	)
+	if err != nil {
+		return PlanningSession{}, err
+	}
+
+	slotCompletion, err := parseSlotCompletionJSON(slotCompletionJSON)
+	if err != nil {
+		return PlanningSession{}, fmt.Errorf("parse slot completion from planning session: %w", err)
+	}
+
+	session.State = ParsePlanningState(stateRaw)
+	session.SlotCompletion = slotCompletion
+	return session, nil
+}
+
+func parseSlotCompletionJSON(raw []byte) (map[string]bool, error) {
+	if len(raw) == 0 {
+		return DefaultSlotCompletion(), nil
+	}
+
+	decoded := make(map[string]bool)
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil, err
+	}
+
+	return NormalizeSlotCompletion(decoded), nil
 }

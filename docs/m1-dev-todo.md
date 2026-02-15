@@ -40,26 +40,26 @@
 
 ## 3. EPIC-TG（Telegram Long Polling）
 
-- [ ] `TG-001` 实现 Telegram API Client：`getMe`
-- [ ] `TG-002` 实现 Telegram API Client：`getUpdates`
-- [ ] `TG-003` 实现 Telegram API Client：`sendMessage`
-- [ ] `TG-004` `getUpdates` 支持 `timeout`、`offset`、`allowed_updates`
-- [ ] `TG-005` 设计轮询循环（空结果继续轮询）
-- [ ] `TG-006` 轮询失败重试（指数退避）
-- [ ] `TG-007` 启动时从 `bot_runtime_states` 读取 `last_update_id`
-- [ ] `TG-008` 每次处理完成后持久化最新 `last_update_id`
-- [ ] `TG-009` 实现 `message_dedup` 写入与重复消息跳过
-- [ ] `TG-010` 提取 Telegram Update -> 内部 Message DTO
-- [ ] `TG-011` 仅允许处理 `message` 类型更新
-- [ ] `TG-012` 过滤非文本消息并返回提示文案
-- [ ] `TG-013` 实现命令解析器（`/start`、`/goal`、`/help`）
-- [ ] `TG-014` 支持自然语言消息入口
-- [ ] `TG-015` sender 增加失败重试（短重试）
-- [ ] `TG-016` sender 429 限流处理（等待后重发）
-- [ ] `TG-017` 轮询线程优雅退出（SIGTERM）
-- [ ] `TG-018` 轮询状态指标上报（成功/失败次数）
-- [ ] `TG-019` 轮询日志中打印 `update_id/chat_id`（脱敏）
-- [ ] `TG-020` 进程重启恢复场景回归测试
+- [x] `TG-001` 实现 Telegram API Client：`getMe` - 2026-02-13
+- [x] `TG-002` 实现 Telegram API Client：`getUpdates` - 2026-02-13
+- [x] `TG-003` 实现 Telegram API Client：`sendMessage` - 2026-02-13
+- [x] `TG-004` `getUpdates` 支持 `timeout`、`offset`、`allowed_updates` - 2026-02-13
+- [x] `TG-005` 设计轮询循环（空结果继续轮询） - 2026-02-13
+- [x] `TG-006` 轮询失败重试（指数退避） - 2026-02-13
+- [x] `TG-007` 启动时从 `bot_runtime_states` 读取 `last_update_id` - 2026-02-13
+- [x] `TG-008` 每次处理完成后持久化最新 `last_update_id` - 2026-02-13
+- [x] `TG-009` 实现 `message_dedup` 写入与重复消息跳过 - 2026-02-13
+- [x] `TG-010` 提取 Telegram Update -> 内部 Message DTO - 2026-02-13
+- [x] `TG-011` 仅允许处理 `message` 类型更新 - 2026-02-13
+- [x] `TG-012` 过滤非文本消息并返回提示文案 - 2026-02-13
+- [x] `TG-013` 实现命令解析器（`/start`、`/goal`、`/help`） - 2026-02-13
+- [x] `TG-014` 支持自然语言消息入口 - 2026-02-13
+- [x] `TG-015` sender 增加失败重试（短重试） - 2026-02-13
+- [x] `TG-016` sender 429 限流处理（等待后重发） - 2026-02-13
+- [x] `TG-017` 轮询线程优雅退出（SIGTERM） - 2026-02-13
+- [x] `TG-018` 轮询状态指标上报（成功/失败次数） - 2026-02-13
+- [x] `TG-019` 轮询日志中打印 `update_id/chat_id`（脱敏） - 2026-02-13
+- [x] `TG-020` 进程重启恢复场景回归测试 - 2026-02-13
 
 ## 4. EPIC-USER（用户与目标基础能力）
 

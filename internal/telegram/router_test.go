@@ -49,3 +49,14 @@ func TestRouterReplyFor(t *testing.T) {
 		})
 	}
 }
+
+func TestRouterReplyForStart(t *testing.T) {
+	router := NewRouter()
+
+	if got := router.ReplyForStart(true); got != ReplyStart {
+		t.Fatalf("ReplyForStart(true)=%q, want %q", got, ReplyStart)
+	}
+	if got := router.ReplyForStart(false); got != ReplyStartBack {
+		t.Fatalf("ReplyForStart(false)=%q, want %q", got, ReplyStartBack)
+	}
+}

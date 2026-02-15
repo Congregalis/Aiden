@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -89,14 +90,20 @@ func runWorkerUntilSendCount(t *testing.T, client *scriptedClient, store *memory
 }
 
 type memoryStore struct {
-	mu           sync.Mutex
-	lastUpdateID int64
-	dedup        map[int64]struct{}
+	mu              sync.Mutex
+	lastUpdateID    int64
+	dedup           map[int64]struct{}
+	usersByChatID   map[int64]User
+	activeGoalByUID map[string]Goal
+	nextUserID      int
+	nextGoalID      int
 }
 
 func newMemoryStore() *memoryStore {
 	return &memoryStore{
-		dedup: make(map[int64]struct{}),
+		dedup:           make(map[int64]struct{}),
+		usersByChatID:   make(map[int64]User),
+		activeGoalByUID: make(map[string]Goal),
 	}
 }
 
@@ -123,10 +130,69 @@ func (s *memoryStore) MarkMessageDedup(_ context.Context, updateID, _ int64) (bo
 	return true, nil
 }
 
+func (s *memoryStore) FindOrCreateUserByChatID(_ context.Context, chatID int64) (User, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if existing, ok := s.usersByChatID[chatID]; ok {
+		return existing, false, nil
+	}
+
+	s.nextUserID++
+	created := User{
+		ID:             fmt.Sprintf("user-%d", s.nextUserID),
+		TelegramChatID: chatID,
+		Language:       "zh-CN",
+		Timezone:       "Asia/Shanghai",
+	}
+	s.usersByChatID[chatID] = created
+	return created, true, nil
+}
+
+func (s *memoryStore) GetActiveGoalByUserID(_ context.Context, userID string) (Goal, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	goal, ok := s.activeGoalByUID[userID]
+	if !ok {
+		return Goal{}, false, nil
+	}
+
+	return goal, true, nil
+}
+
+func (s *memoryStore) CreateGoalDraft(_ context.Context, userID string) (Goal, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.nextGoalID++
+	goal := Goal{
+		ID:     fmt.Sprintf("goal-%d", s.nextGoalID),
+		UserID: userID,
+		Title:  "",
+		Status: "draft",
+	}
+	s.activeGoalByUID[userID] = goal
+	return goal, nil
+}
+
 func (s *memoryStore) LastUpdateID() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.lastUpdateID
+}
+
+func (s *memoryStore) GoalCreateCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.nextGoalID
+}
+
+func (s *memoryStore) UserByChatID(chatID int64) (User, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	user, ok := s.usersByChatID[chatID]
+	return user, ok
 }
 
 type scriptedClient struct {
@@ -173,5 +239,13 @@ func (c *scriptedClient) GetOffsets() []int64 {
 	defer c.mu.Unlock()
 	out := make([]int64, len(c.offsets))
 	copy(out, c.offsets)
+	return out
+}
+
+func (c *scriptedClient) SentMessages() []OutgoingMessage {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make([]OutgoingMessage, len(c.sent))
+	copy(out, c.sent)
 	return out
 }

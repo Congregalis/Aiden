@@ -177,12 +177,63 @@ func (w *Worker) handleUpdate(ctx context.Context, update Update) error {
 		})
 	}
 
-	reply := w.router.ReplyFor(message)
+	user, isNewUser, err := w.store.FindOrCreateUserByChatID(ctx, message.ChatID)
+	if err != nil {
+		return fmt.Errorf("find or create user by chat id: %w", err)
+	}
+
+	command := ParseCommand(message.Text)
+	reply := ReplyNaturalMessage
+	if command.IsCommand {
+		switch command.Name {
+		case "start":
+			reply = w.router.ReplyForStart(isNewUser)
+		case "goal":
+			if _, err := w.ensureActiveGoal(ctx, user, message.ChatID); err != nil {
+				return err
+			}
+			reply = ReplyGoal
+		case "help":
+			reply = ReplyHelp
+		default:
+			reply = ReplyUnknownCommand
+		}
+	} else {
+		if _, err := w.ensureActiveGoal(ctx, user, message.ChatID); err != nil {
+			return err
+		}
+		reply = ReplyNaturalMessage
+	}
+
 	return w.sender.Send(ctx, OutgoingMessage{
 		ChatID:           message.ChatID,
 		Text:             reply,
 		ReplyToMessageID: message.MessageID,
 	})
+}
+
+func (w *Worker) ensureActiveGoal(ctx context.Context, user User, chatID int64) (Goal, error) {
+	goal, found, err := w.store.GetActiveGoalByUserID(ctx, user.ID)
+	if err != nil {
+		return Goal{}, fmt.Errorf("get active goal by user id: %w", err)
+	}
+	if found {
+		return goal, nil
+	}
+
+	createdGoal, err := w.store.CreateGoalDraft(ctx, user.ID)
+	if err != nil {
+		return Goal{}, fmt.Errorf("create goal draft: %w", err)
+	}
+
+	w.logger.Info("goal_started",
+		slog.String("goal_id", createdGoal.ID),
+		slog.String("user_id", createdGoal.UserID),
+		slog.String("goal_status", createdGoal.Status),
+		slog.String("chat_id_masked", MaskChatID(chatID)),
+	)
+
+	return createdGoal, nil
 }
 
 func pollingFailureBackoff(failureStreak int) time.Duration {

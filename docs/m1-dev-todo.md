@@ -63,14 +63,14 @@
 
 ## 4. EPIC-USER（用户与目标基础能力）
 
-- [ ] `USER-001` 实现 `find_or_create_user_by_chat_id`
-- [ ] `USER-002` 默认用户语言设为 `zh-CN`
-- [ ] `USER-003` 默认用户时区设为 `Asia/Shanghai`
-- [ ] `USER-004` 实现 `/start` 初始化欢迎流程
-- [ ] `USER-005` 实现 `create_goal_draft`
-- [ ] `USER-006` 实现 `get_active_goal_by_user_id`
-- [ ] `USER-007` 无活跃目标时自动创建草稿目标
-- [ ] `USER-008` 新建目标后写入 `goal_started` 埋点
+- [x] `USER-001` 实现 `find_or_create_user_by_chat_id` - 2026-02-15
+- [x] `USER-002` 默认用户语言设为 `zh-CN` - 2026-02-15
+- [x] `USER-003` 默认用户时区设为 `Asia/Shanghai` - 2026-02-15
+- [x] `USER-004` 实现 `/start` 初始化欢迎流程 - 2026-02-15
+- [x] `USER-005` 实现 `create_goal_draft` - 2026-02-15
+- [x] `USER-006` 实现 `get_active_goal_by_user_id` - 2026-02-15
+- [x] `USER-007` 无活跃目标时自动创建草稿目标 - 2026-02-15
+- [x] `USER-008` 新建目标后写入 `goal_started` 埋点 - 2026-02-15
 
 ## 5. EPIC-CLARIFY（澄清状态机）
 

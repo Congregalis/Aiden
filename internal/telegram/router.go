@@ -3,9 +3,10 @@ package telegram
 import "strings"
 
 const (
-	ReplyStart = "你好，我是 Aiden。你可以通过 /goal 开始目标澄清，我会一步步帮你把目标讲清楚。"
-	ReplyGoal  = "好的，我们开始目标澄清。请先告诉我：你希望在什么时间前达成什么目标？"
-	ReplyHelp  = "当前可用命令：/start、/goal、/help。你也可以直接用自然语言告诉我你的目标。"
+	ReplyStart     = "欢迎来到 Aiden！我已完成初始化（默认语言 zh-CN，默认时区 Asia/Shanghai）。发送 /goal 开始目标澄清。"
+	ReplyStartBack = "欢迎回来！发送 /goal 继续目标澄清，或发送 /help 查看可用命令。"
+	ReplyGoal      = "好的，我们开始目标澄清。请先告诉我：你希望在什么时间前达成什么目标？"
+	ReplyHelp      = "当前可用命令：/start、/goal、/help。你也可以直接用自然语言告诉我你的目标。"
 
 	ReplyNonText        = "我目前只能处理文本消息，请发送文字内容。"
 	ReplyUnknownCommand = "这个命令会在后续里程碑开放。当前可用：/start、/goal、/help。"
@@ -59,4 +60,11 @@ func (r Router) ReplyFor(message IncomingMessage) string {
 	default:
 		return ReplyUnknownCommand
 	}
+}
+
+func (r Router) ReplyForStart(isNewUser bool) string {
+	if isNewUser {
+		return ReplyStart
+	}
+	return ReplyStartBack
 }
